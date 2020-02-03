@@ -9271,32 +9271,42 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
 
 /*
  *  call-seq:
- *     IO.select(read_array [, write_array [, error_array [, timeout]]]) -> array or nil
+ *     IO.select(read_array [, write_array [, except_array [, timeout]]]) -> array or nil
+ *     IO.select_with_poll(read_array [, write_array [, except_array [, error_array [, timeout]]]) -> array or nil
  *
  *  Calls select(2) system call.
- *  It monitors given arrays of <code>IO</code> objects, waits until one or more
- *  of <code>IO</code> objects are ready for reading, are ready for writing,
- *  and have pending exceptions respectively, and returns an array that
- *  contains arrays of those IO objects.  It will return +nil+
- *  if optional <i>timeout</i> value is given and no <code>IO</code> object
- *  is ready in <i>timeout</i> seconds.
+ *  It monitors given arrays of IO objects, waits until one or more of
+ *  IO objects are ready for reading, are ready for writing, and have
+ *  pending exceptions respectively, and returns an array that contains
+ *  arrays of those IO objects.  It will return +nil+ if optional
+ *  <i>timeout</i> value is given and no IO object is ready in
+ *  <i>timeout</i> seconds. Note that 'exceptions' in this context are also
+ *  known as 'priority data' or out-of-band data and dependent on the
+ *  file descriptor type designated by the IO object. select(2) cannot detect
+ *  that the other end of pipe or socket is closed. It can be detected only
+ *  implicitly for sockets used for reading: select returns the socket as ready
+ *  and read returns the error.
  *
- *  <code>IO.select</code> peeks the buffer of <code>IO</code> objects for testing readability.
- *  If the <code>IO</code> buffer is not empty,
- *  <code>IO.select</code> immediately notifies readability.
- *  This "peek" only happens for <code>IO</code> objects.
- *  It does not happen for IO-like objects such as OpenSSL::SSL::SSLSocket.
+ *  On systems that support poll(2) system call IO.select_with_poll is provided
+ *  which takes and returns extra array of descriptors. Descriptors in this
+ *  extra array and all other arrays are checked for error conditions -
+ *  typically the other side closing the pipe or socket.
  *
- *  The best way to use <code>IO.select</code> is invoking it
- *  after nonblocking methods such as <code>read_nonblock</code>, <code>write_nonblock</code>, etc.
- *  The methods raise an exception which is extended by
- *  <code>IO::WaitReadable</code> or <code>IO::WaitWritable</code>.
- *  The modules notify how the caller should wait with <code>IO.select</code>.
- *  If <code>IO::WaitReadable</code> is raised, the caller should wait for reading.
- *  If <code>IO::WaitWritable</code> is raised, the caller should wait for writing.
+ *  IO.select peeks the buffer of IO objects for testing readability.
+ *  If the IO buffer is not empty, IO.select immediately notifies
+ *  readability.  This "peek" only happens for IO objects.  It does not
+ *  happen for IO-like objects such as OpenSSL::SSL::SSLSocket.
  *
- *  So, blocking read (<code>readpartial</code>) can be emulated using
- *  <code>read_nonblock</code> and <code>IO.select</code> as follows:
+ *  The best way to use IO.select is invoking it after nonblocking
+ *  methods such as #read_nonblock, #write_nonblock, etc.  The methods
+ *  raise an exception which is extended by IO::WaitReadable or
+ *  IO::WaitWritable.  The modules notify how the caller should wait
+ *  with IO.select.  If IO::WaitReadable is raised, the caller should
+ *  wait for reading.  If IO::WaitWritable is raised, the caller should
+ *  wait for writing.
+ *
+ *  So, blocking read (#readpartial) can be emulated using
+ *  #read_nonblock and IO.select as follows:
  *
  *    begin
  *      result = io_like.read_nonblock(maxlen)
