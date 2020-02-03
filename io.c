@@ -9464,7 +9464,8 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
 
 /*
  *  call-seq:
- *     IO.select(read_array [, write_array [, error_array [, timeout]]]) -> array or nil
+ *     IO.select(read_array [, write_array [, except_array [, timeout]]]) -> array or nil
+ *     IO.select_with_poll(read_array [, write_array [, except_array [, error_array [, timeout]]]) -> array or nil
  *
  *  Calls select(2) system call.
  *  It monitors given arrays of IO objects, waits until one or more of
@@ -9472,7 +9473,17 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
  *  pending exceptions respectively, and returns an array that contains
  *  arrays of those IO objects.  It will return +nil+ if optional
  *  <i>timeout</i> value is given and no IO object is ready in
- *  <i>timeout</i> seconds.
+ *  <i>timeout</i> seconds. Note that 'exceptions' in this context are also
+ *  known as 'priority data' or out-of-band data and dependent on the
+ *  file descriptor type designated by the IO object. select(2) cannot detect
+ *  that the other end of pipe or socket is closed. It can be detected only
+ *  implicitly for sockets used for reading: select returns the socket as ready
+ *  and read returns the error.
+ *
+ *  On systems that support poll(2) system call IO.select_with_poll is provided
+ *  which takes and returns extra array of descriptors. Descriptors in this
+ *  extra array and all other arrays are checked for error conditions -
+ *  typically the other side closing the pipe or socket.
  *
  *  IO.select peeks the buffer of IO objects for testing readability.
  *  If the IO buffer is not empty, IO.select immediately notifies
