@@ -47,10 +47,12 @@ extern "C" {
 #  define RB_WAITFD_IN  POLLIN
 #  define RB_WAITFD_PRI POLLPRI
 #  define RB_WAITFD_OUT POLLOUT
+#  define RB_WAITFD_ERR (POLLHUP|POLLERR)
 #else
 #  define RB_WAITFD_IN  0x001
 #  define RB_WAITFD_PRI 0x002
 #  define RB_WAITFD_OUT 0x004
+#  define RB_WAITFD_ERR 0x008
 #endif
 
 RUBY_SYMBOL_EXPORT_BEGIN

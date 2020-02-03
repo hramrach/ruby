@@ -4242,7 +4242,7 @@ rb_wait_for_single_fd(int fd, int events, struct timeval *timeout)
 
     /* all requested events are ready if there is an error */
     if (fds[0].revents & POLLERR_SET)
-	result |= events;
+	result |= events | POLLERR_SET;
 
     return result;
 }
