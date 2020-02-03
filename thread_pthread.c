@@ -1084,9 +1084,9 @@ native_thread_apply_priority(rb_thread_t *th)
 #endif /* USE_NATIVE_THREAD_PRIORITY */
 
 static int
-native_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, struct timeval *timeout, rb_thread_t *th)
+native_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds, struct timeval *timeout, rb_thread_t *th)
 {
-    return rb_fd_select(n, readfds, writefds, exceptfds, timeout);
+    return rb_fd_select(n, readfds, writefds, exceptfds, errorfds, timeout);
 }
 
 static void

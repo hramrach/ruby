@@ -8909,7 +8909,7 @@ static VALUE
 select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fdset_t *fds)
 {
     VALUE res, list;
-    rb_fdset_t *rp, *wp, *ep;
+    rb_fdset_t *rp, *wp, *ep, *erp;
     rb_io_t *fptr;
     long i;
     int max = 0, n;
@@ -8969,9 +8969,11 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 	ep = 0;
     }
 
+    erp = 0;
+
     max++;
 
-    n = rb_thread_fd_select(max, rp, wp, ep, tp);
+    n = rb_thread_fd_select(max, rp, wp, ep, erp, tp);
     if (n < 0) {
 	rb_sys_fail(0);
     }
@@ -9031,9 +9033,9 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 }
 
 struct select_args {
-    VALUE read, write, except;
+    VALUE read, write, except, error;
     struct timeval *timeout;
-    rb_fdset_t fdsets[4];
+    rb_fdset_t fdsets[5];
 };
 
 static VALUE
@@ -9379,6 +9381,7 @@ rb_f_select(int argc, VALUE *argv, VALUE obj)
     int i;
 
     rb_scan_args(argc, argv, "13", &args.read, &args.write, &args.except, &timeout);
+    args.error = Qnil;
     if (NIL_P(timeout)) {
 	args.timeout = 0;
     }
@@ -10665,12 +10668,12 @@ maygvl_copy_stream_wait_read(int has_gvl, struct copy_stream_struct *stp)
 }
 #else /* !USE_POLL */
 static int
-maygvl_select(int has_gvl, int n, rb_fdset_t *rfds, rb_fdset_t *wfds, rb_fdset_t *efds, struct timeval *timeout)
+maygvl_select(int has_gvl, int n, rb_fdset_t *rfds, rb_fdset_t *wfds, rb_fdset_t *efds, rb_fdset_t *errfds, struct timeval *timeout)
 {
     if (has_gvl)
-        return rb_thread_fd_select(n, rfds, wfds, efds, timeout);
+        return rb_thread_fd_select(n, rfds, wfds, efds, errfds, timeout);
     else
-        return rb_fd_select(n, rfds, wfds, efds, timeout);
+        return rb_fd_select(n, rfds, wfds, efds, errfds, timeout);
 }
 
 static int
@@ -10681,7 +10684,7 @@ maygvl_copy_stream_wait_read(int has_gvl, struct copy_stream_struct *stp)
     do {
 	rb_fd_zero(&stp->fds);
 	rb_fd_set(stp->src_fd, &stp->fds);
-        ret = maygvl_select(has_gvl, rb_fd_max(&stp->fds), &stp->fds, NULL, NULL, NULL);
+        ret = maygvl_select(has_gvl, rb_fd_max(&stp->fds), &stp->fds, NULL, NULL, NULL, NULL);
     } while (ret == -1 && maygvl_copy_stream_continue_p(has_gvl, stp));
 
     if (ret == -1) {
@@ -10704,7 +10707,7 @@ nogvl_copy_stream_wait_write(struct copy_stream_struct *stp)
 #else
 	rb_fd_zero(&stp->fds);
 	rb_fd_set(stp->dst_fd, &stp->fds);
-        ret = rb_fd_select(rb_fd_max(&stp->fds), NULL, &stp->fds, NULL, NULL);
+        ret = rb_fd_select(rb_fd_max(&stp->fds), NULL, &stp->fds, NULL, NULL, NULL);
 #endif
     } while (ret == -1 && maygvl_copy_stream_continue_p(0, stp));
 
