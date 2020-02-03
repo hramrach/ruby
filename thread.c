@@ -4098,6 +4098,10 @@ rb_wait_for_single_fd(int fd, int events, struct timeval *tv)
     if (fds.revents & POLLEX_SET)
 	result |= RB_WAITFD_PRI;
 
+    /* all requested events are ready if there is an error */
+    if (fds.revents & POLLERR_SET)
+	result |= events | POLLERR_SET;
+
     return result;
 }
 #else /* ! USE_POLL - implement rb_io_poll_fd() using select() */
