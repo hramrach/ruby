@@ -9099,7 +9099,7 @@ rb_f_backquote(VALUE obj, VALUE str)
 #endif
 
 static VALUE
-select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fdset_t *fds)
+select_internal(VALUE read, VALUE write, VALUE except, VALUE error, struct timeval *tp, rb_fdset_t *fds)
 {
     VALUE res, list;
     rb_fdset_t *rp, *wp, *ep, *erp;
@@ -9116,7 +9116,7 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 	    rb_fd_set(fptr->fd, &fds[0]);
 	    if (READ_DATA_PENDING(fptr) || READ_CHAR_PENDING(fptr)) { /* check for buffered data */
 		pending++;
-		rb_fd_set(fptr->fd, &fds[3]);
+		rb_fd_set(fptr->fd, &fds[4]);
 	    }
 	    if (max < fptr->fd) max = fptr->fd;
 	}
@@ -9162,7 +9162,25 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 	ep = 0;
     }
 
-    erp = 0;
+    if (!NIL_P(error)) {
+	Check_Type(error, T_ARRAY);
+	for (i=0; i<RARRAY_LEN(error); i++) {
+            VALUE io = rb_io_get_io(RARRAY_AREF(error, i));
+            VALUE write_io = GetWriteIO(io);
+	    GetOpenFile(io, fptr);
+	    rb_fd_set(fptr->fd, &fds[3]);
+	    if (max < fptr->fd) max = fptr->fd;
+            if (io != write_io) {
+                GetOpenFile(write_io, fptr);
+                rb_fd_set(fptr->fd, &fds[3]);
+                if (max < fptr->fd) max = fptr->fd;
+            }
+	}
+	erp = &fds[3];
+    }
+    else {
+	erp = 0;
+    }
 
     max++;
 
@@ -9172,10 +9190,11 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
     }
     if (!pending && n == 0) return Qnil; /* returns nil on timeout */
 
-    res = rb_ary_new2(3);
+    res = rb_ary_new2(4);
     rb_ary_push(res, rp?rb_ary_new():rb_ary_new2(0));
     rb_ary_push(res, wp?rb_ary_new():rb_ary_new2(0));
     rb_ary_push(res, ep?rb_ary_new():rb_ary_new2(0));
+    rb_ary_push(res, erp?rb_ary_new():rb_ary_new2(0));
 
     if (rp) {
 	list = RARRAY_AREF(res, 0);
@@ -9184,7 +9203,7 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 	    VALUE io = rb_io_get_io(obj);
 	    GetOpenFile(io, fptr);
 	    if (rb_fd_isset(fptr->fd, &fds[0]) ||
-		rb_fd_isset(fptr->fd, &fds[3])) {
+		rb_fd_isset(fptr->fd, &fds[4])) {
 		rb_ary_push(list, obj);
 	    }
 	}
@@ -9222,6 +9241,25 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 	}
     }
 
+    if (erp) {
+	list = RARRAY_AREF(res, 3);
+	for (i=0; i< RARRAY_LEN(error); i++) {
+	    VALUE obj = rb_ary_entry(error, i);
+	    VALUE io = rb_io_get_io(obj);
+	    VALUE write_io = GetWriteIO(io);
+	    GetOpenFile(io, fptr);
+	    if (rb_fd_isset(fptr->fd, &fds[3])) {
+		rb_ary_push(list, obj);
+	    }
+	    else if (io != write_io) {
+		GetOpenFile(write_io, fptr);
+		if (rb_fd_isset(fptr->fd, &fds[3])) {
+		    rb_ary_push(list, obj);
+		}
+	    }
+	}
+    }
+
     return res;			/* returns an empty array on interrupt */
 }
 
@@ -9236,7 +9274,7 @@ select_call(VALUE arg)
 {
     struct select_args *p = (struct select_args *)arg;
 
-    return select_internal(p->read, p->write, p->except, p->timeout, p->fdsets);
+    return select_internal(p->read, p->write, p->except, p->error, p->timeout, p->fdsets);
 }
 
 static VALUE
@@ -9567,7 +9605,7 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
 static VALUE
 rb_f_select(int argc, VALUE *argv, VALUE obj)
 {
-    VALUE timeout;
+    VALUE timeout, rv;
     struct select_args args;
     struct timeval timerec;
     int i;
@@ -9585,7 +9623,10 @@ rb_f_select(int argc, VALUE *argv, VALUE obj)
     for (i = 0; i < numberof(args.fdsets); ++i)
 	rb_fd_init(&args.fdsets[i]);
 
-    return rb_ensure(select_call, (VALUE)&args, select_end, (VALUE)&args);
+    rv = rb_ensure(select_call, (VALUE)&args, select_end, (VALUE)&args);
+    if (RB_TYPE_P(rv, T_ARRAY))
+        rb_ary_pop(rv);
+    return rv;
 }
 
 #if (defined(__linux__) && !defined(__ANDROID__)) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__APPLE__)
