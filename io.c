@@ -9601,32 +9601,51 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
  *      (snipped)
  *      ping
  */
+static VALUE
+do_rb_f_select(struct select_args * argp, VALUE timeout);
+#if USE_POLL
+static VALUE
+rb_f_select_with_poll(int argc, VALUE *argv, VALUE obj)
+{
+    VALUE timeout;
+    struct select_args args;
 
+    rb_scan_args(argc, argv, "14", &args.read, &args.write, &args.except, &args.error, &timeout);
+    return do_rb_f_select(&args, timeout);
+}
+#endif
 static VALUE
 rb_f_select(int argc, VALUE *argv, VALUE obj)
 {
     VALUE timeout, rv;
     struct select_args args;
-    struct timeval timerec;
-    int i;
 
     rb_scan_args(argc, argv, "13", &args.read, &args.write, &args.except, &timeout);
     args.error = Qnil;
-    if (NIL_P(timeout)) {
-	args.timeout = 0;
-    }
-    else {
-	timerec = rb_time_interval(timeout);
-	args.timeout = &timerec;
-    }
-
-    for (i = 0; i < numberof(args.fdsets); ++i)
-	rb_fd_init(&args.fdsets[i]);
-
-    rv = rb_ensure(select_call, (VALUE)&args, select_end, (VALUE)&args);
+    rv = do_rb_f_select(&args, timeout);
     if (RB_TYPE_P(rv, T_ARRAY))
         rb_ary_pop(rv);
     return rv;
+}
+
+static VALUE
+do_rb_f_select(struct select_args * args, VALUE timeout)
+{
+    struct timeval timerec;
+    int i;
+
+    if (NIL_P(timeout)) {
+	args->timeout = 0;
+    }
+    else {
+	timerec = rb_time_interval(timeout);
+	args->timeout = &timerec;
+    }
+
+    for (i = 0; i < numberof(args->fdsets); ++i)
+	rb_fd_init(&args->fdsets[i]);
+
+    return rb_ensure(select_call, (VALUE)args, select_end, (VALUE)args);
 }
 
 #if (defined(__linux__) && !defined(__ANDROID__)) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__APPLE__)
@@ -13304,6 +13323,9 @@ Init_IO(void)
     rb_define_singleton_method(rb_cIO, "write", rb_io_s_write, -1);
     rb_define_singleton_method(rb_cIO, "binwrite", rb_io_s_binwrite, -1);
     rb_define_singleton_method(rb_cIO, "select", rb_f_select, -1);
+#if USE_POLL
+    rb_define_singleton_method(rb_cIO, "select_with_poll", rb_f_select_with_poll, -1);
+#endif
     rb_define_singleton_method(rb_cIO, "pipe", rb_io_s_pipe, -1);
     rb_define_singleton_method(rb_cIO, "try_convert", rb_io_s_try_convert, 1);
     rb_define_singleton_method(rb_cIO, "copy_stream", rb_io_s_copy_stream, -1);
