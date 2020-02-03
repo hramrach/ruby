@@ -9028,7 +9028,7 @@ static VALUE
 select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fdset_t *fds)
 {
     VALUE res, list;
-    rb_fdset_t *rp, *wp, *ep;
+    rb_fdset_t *rp, *wp, *ep, *erp;
     rb_io_t *fptr;
     long i;
     int max = 0, n;
@@ -9088,9 +9088,11 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 	ep = 0;
     }
 
+    erp = 0;
+
     max++;
 
-    n = rb_thread_fd_select(max, rp, wp, ep, tp);
+    n = rb_thread_fd_select(max, rp, wp, ep, erp, tp);
     if (n < 0) {
 	rb_sys_fail(0);
     }
@@ -9150,9 +9152,9 @@ select_internal(VALUE read, VALUE write, VALUE except, struct timeval *tp, rb_fd
 }
 
 struct select_args {
-    VALUE read, write, except;
+    VALUE read, write, except, error;
     struct timeval *timeout;
-    rb_fdset_t fdsets[4];
+    rb_fdset_t fdsets[5];
 };
 
 static VALUE
@@ -9498,6 +9500,7 @@ rb_f_select(int argc, VALUE *argv, VALUE obj)
     int i;
 
     rb_scan_args(argc, argv, "13", &args.read, &args.write, &args.except, &timeout);
+    args.error = Qnil;
     if (NIL_P(timeout)) {
 	args.timeout = 0;
     }
@@ -10781,10 +10784,10 @@ nogvl_wait_for_single_fd(int fd, short events)
 
     switch (events) {
       case RB_WAITFD_IN:
-        ret = rb_fd_select(fd + 1, &fds, 0, 0, 0);
+        ret = rb_fd_select(fd + 1, &fds, 0, 0, 0, 0);
         break;
       case RB_WAITFD_OUT:
-        ret = rb_fd_select(fd + 1, 0, &fds, 0, 0);
+        ret = rb_fd_select(fd + 1, 0, &fds, 0, 0, 0);
         break;
       default:
         VM_UNREACHABLE(nogvl_wait_for_single_fd);

@@ -3728,7 +3728,7 @@ rb_fd_dup(rb_fdset_t *dst, const rb_fdset_t *src)
 }
 
 int
-rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, struct timeval *timeout)
+rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds, struct timeval *timeout)
 {
     fd_set *r = NULL, *w = NULL, *e = NULL;
     if (readfds) {
@@ -3743,6 +3743,8 @@ rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *excep
         rb_fd_resize(n - 1, exceptfds);
         e = rb_fd_ptr(exceptfds);
     }
+    if (errorfds)
+        rb_fd_zero(errorfds);
     return select(n, r, w, e, timeout);
 }
 
@@ -3853,9 +3855,11 @@ struct select_set {
     rb_fdset_t *rset;
     rb_fdset_t *wset;
     rb_fdset_t *eset;
+    rb_fdset_t *errset;
     rb_fdset_t orig_rset;
     rb_fdset_t orig_wset;
     rb_fdset_t orig_eset;
+    rb_fdset_t orig_errset;
     struct timeval *timeout;
 };
 
@@ -3872,6 +3876,7 @@ select_set_free(VALUE p)
     rb_fd_term(&set->orig_rset);
     rb_fd_term(&set->orig_wset);
     rb_fd_term(&set->orig_eset);
+    rb_fd_term(&set->orig_errset);
 
     return Qfalse;
 }
@@ -3906,6 +3911,7 @@ do_select(VALUE p)
     (restore_fdset(set->rset, &set->orig_rset), \
      restore_fdset(set->wset, &set->orig_wset), \
      restore_fdset(set->eset, &set->orig_eset), \
+     restore_fdset(set->errset, &set->orig_errset), \
      TRUE)
 
     do {
@@ -3919,7 +3925,7 @@ do_select(VALUE p)
             sto = sigwait_timeout(set->th, set->sigwait_fd, to, &drained);
             if (!RUBY_VM_INTERRUPTED(set->th->ec)) {
                 result = native_fd_select(set->max, set->rset, set->wset,
-                                          set->eset,
+                                          set->eset, set->errset,
                                           rb_hrtime2timeval(&tv, sto), set->th);
                 if (result < 0) lerrno = errno;
             }
@@ -3988,7 +3994,7 @@ init_set_fd(int fd, rb_fdset_t *fds)
 
 int
 rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t * except,
-		    struct timeval *timeout)
+		    rb_fdset_t * error, struct timeval *timeout)
 {
     struct select_set set;
 
@@ -3998,9 +4004,10 @@ rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t *
     set.rset = read;
     set.wset = write;
     set.eset = except;
+    set.errset = error;
     set.timeout = timeout;
 
-    if (!set.rset && !set.wset && !set.eset) {
+    if (!set.rset && !set.wset && !set.eset && !set.errset) {
         if (!timeout) {
             rb_thread_sleep_forever();
             return 0;
@@ -4033,6 +4040,7 @@ rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t *
     fd_init_copy(rset);
     fd_init_copy(wset);
     fd_init_copy(eset);
+    fd_init_copy(errset);
 #undef fd_init_copy
 
     return (int)rb_ensure(do_select, (VALUE)&set, select_set_free, (VALUE)&set);
@@ -4145,6 +4153,7 @@ struct select_args {
     rb_fdset_t *read;
     rb_fdset_t *write;
     rb_fdset_t *except;
+    rb_fdset_t *error;
     struct waiting_fd wfd;
     struct timeval *tv;
 };
@@ -4156,7 +4165,7 @@ select_single(VALUE ptr)
     int r;
 
     r = rb_thread_fd_select(args->as.fd + 1,
-                            args->read, args->write, args->except, args->tv);
+                            args->read, args->write, args->except, args->error, args->tv);
     if (r == -1)
 	args->as.error = errno;
     if (r > 0) {
@@ -4167,6 +4176,8 @@ select_single(VALUE ptr)
 	    r |= RB_WAITFD_OUT;
 	if (args->except && rb_fd_isset(args->as.fd, args->except))
 	    r |= RB_WAITFD_PRI;
+	if (args->error && rb_fd_isset(args->as.fd, args->error))
+	    r |= RB_WAITFD_ERR;
     }
     return (VALUE)r;
 }
@@ -4180,6 +4191,7 @@ select_single_cleanup(VALUE ptr)
     if (args->read) rb_fd_term(args->read);
     if (args->write) rb_fd_term(args->write);
     if (args->except) rb_fd_term(args->except);
+    if (args->error) rb_fd_term(args->error);
 
     return (VALUE)-1;
 }
@@ -4187,7 +4199,7 @@ select_single_cleanup(VALUE ptr)
 int
 rb_wait_for_single_fd(int fd, int events, struct timeval *tv)
 {
-    rb_fdset_t rfds, wfds, efds;
+    rb_fdset_t rfds, wfds, efds, errfds;
     struct select_args args;
     int r;
     VALUE ptr = (VALUE)&args;
@@ -4196,6 +4208,7 @@ rb_wait_for_single_fd(int fd, int events, struct timeval *tv)
     args.read = (events & RB_WAITFD_IN) ? init_set_fd(fd, &rfds) : NULL;
     args.write = (events & RB_WAITFD_OUT) ? init_set_fd(fd, &wfds) : NULL;
     args.except = (events & RB_WAITFD_PRI) ? init_set_fd(fd, &efds) : NULL;
+    args.error = (events & RB_WAITFD_ERR) ? init_set_fd(fd, &errfds) : NULL;
     args.tv = tv;
     args.wfd.fd = fd;
     args.wfd.th = GET_THREAD();

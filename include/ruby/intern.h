@@ -345,7 +345,7 @@ void rb_fd_copy(rb_fdset_t *, const fd_set *, int);
 void rb_fd_dup(rb_fdset_t *dst, const rb_fdset_t *src);
 
 struct timeval;
-int rb_fd_select(int, rb_fdset_t *, rb_fdset_t *, rb_fdset_t *, struct timeval *);
+int rb_fd_select(int, rb_fdset_t *, rb_fdset_t *, rb_fdset_t *, rb_fdset_t *, struct timeval *);
 
 #define rb_fd_ptr(f)	((f)->fdset)
 #define rb_fd_max(f)	((f)->maxfd)
@@ -368,7 +368,7 @@ void rb_w32_fd_copy(rb_fdset_t *, const fd_set *, int);
 #define rb_fd_dup(d, s)	rb_w32_fd_dup((d), (s))
 void rb_w32_fd_dup(rb_fdset_t *dst, const rb_fdset_t *src);
 static inline int
-rb_fd_select(int n, rb_fdset_t *rfds, rb_fdset_t *wfds, rb_fdset_t *efds, struct timeval *timeout)
+rb_fd_select(int n, rb_fdset_t *rfds, rb_fdset_t *wfds, rb_fdset_t *efds, rb_fdset_t *errfds, struct timeval *timeout)
 {
     return rb_w32_select(n,
                          rfds ? rfds->fdset : NULL,
@@ -396,7 +396,7 @@ typedef fd_set rb_fdset_t;
 #define rb_fd_init_copy(d, s) (*(d) = *(s))
 #define rb_fd_term(f)	((void)(f))
 #define rb_fd_max(f)	FD_SETSIZE
-#define rb_fd_select(n, rfds, wfds, efds, timeout)	select((n), (rfds), (wfds), (efds), (timeout))
+#define rb_fd_select(n, rfds, wfds, efds, errfds, timeout)	select((n), (rfds), (wfds), (efds), (timeout))
 
 #endif
 
@@ -475,7 +475,7 @@ VALUE rb_thread_wakeup_alive(VALUE);
 VALUE rb_thread_run(VALUE);
 VALUE rb_thread_kill(VALUE);
 VALUE rb_thread_create(VALUE (*)(ANYARGS), void*);
-int rb_thread_fd_select(int, rb_fdset_t *, rb_fdset_t *, rb_fdset_t *, struct timeval *);
+int rb_thread_fd_select(int, rb_fdset_t *, rb_fdset_t *, rb_fdset_t *, rb_fdset_t *, struct timeval *);
 void rb_thread_wait_for(struct timeval);
 VALUE rb_thread_current(void);
 VALUE rb_thread_main(void);
