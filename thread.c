@@ -3797,6 +3797,107 @@ rb_fd_dup(rb_fdset_t *dst, const rb_fdset_t *src)
     memcpy(dst->fdset, src->fdset, size);
 }
 
+#if USE_POLL
+struct rb_pollfdset {
+    int n_fds;
+    struct pollfd *fds;
+};
+
+static void
+pollfdset_init(struct rb_pollfdset *pollfdset)
+{
+    memset(pollfdset, 0, sizeof(*pollfdset));
+}
+
+static void
+pollfdset_term(struct rb_pollfdset *pollfdset)
+{
+    pollfdset->fds = xrealloc(pollfdset->fds, 0);
+    pollfdset->n_fds = 0;
+}
+
+static void
+pollfdset_inc(struct rb_pollfdset *pollfdset)
+{
+    pollfdset->fds = xrealloc(pollfdset->fds,sizeof(*pollfdset->fds) * (pollfdset->n_fds + 1));
+    memset(&pollfdset->fds[pollfdset->n_fds], 0, sizeof(*pollfdset->fds));
+    pollfdset->n_fds++;
+}
+
+static int
+pollfdset_get_index(struct rb_pollfdset *pollfdset, int fd)
+{
+    int i;
+
+    for (i = 0; i < pollfdset->n_fds ; i++)
+        if (pollfdset->fds[i].fd == fd)
+            return i;
+    return -1;
+}
+
+static int
+pollfdset_index(struct rb_pollfdset *pollfdset, int fd)
+{
+    int ret = pollfdset_get_index(pollfdset, fd);
+
+    if (ret < 0) {
+        ret = pollfdset->n_fds;
+        pollfdset_inc(pollfdset);
+        pollfdset->fds[ret].fd = fd;
+    }
+    return ret;
+}
+
+static void
+pollfdset_set_flags(struct rb_pollfdset *pollfdset, int fd, int flags)
+{
+    /* this is tricky - fds might get reallocated as a sideeffect of obtaining the index */
+    int idx = pollfdset_index(pollfdset, fd);
+    pollfdset->fds[idx].events |= flags;
+}
+
+static void
+pollfdset_add(struct rb_pollfdset *pollfdset, rb_fdset_t *fds, int flags)
+{
+    int i;
+
+    for (i = 0; i < fds->maxfd ; i++)
+        if (rb_fd_isset(i, fds))
+            pollfdset_set_flags(pollfdset, i, flags);
+}
+
+static void
+pollfdset_extract(struct rb_pollfdset *pollfdset, rb_fdset_t *fds, int flags)
+{
+    int i;
+
+    rb_fd_zero(fds);
+    for (i = 0; i < pollfdset->n_fds; i++)
+        if (pollfdset->fds[i].revents & (flags | POLLERR_SET))
+            rb_fd_set(pollfdset->fds[i].fd, fds);
+}
+
+int
+rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds, struct timeval *timeout)
+{
+    struct rb_pollfdset pollfdset;
+    int timeout_ms = timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1;
+    int ret;
+
+    pollfdset_init(&pollfdset);
+    if (readfds) pollfdset_add(&pollfdset, readfds, POLLIN_SET);
+    if (writefds) pollfdset_add(&pollfdset, writefds, POLLOUT_SET);
+    if (exceptfds) pollfdset_add(&pollfdset, exceptfds, POLLEX_SET);
+    if (errorfds) pollfdset_add(&pollfdset, errorfds, POLLERR_SET);
+    ret = poll(pollfdset.fds, pollfdset.n_fds, timeout_ms);
+    if (readfds) pollfdset_extract(&pollfdset, readfds, POLLIN_SET);
+    if (writefds) pollfdset_extract(&pollfdset, writefds, POLLOUT_SET);
+    if (exceptfds) pollfdset_extract(&pollfdset, exceptfds, POLLEX_SET);
+    if (errorfds) pollfdset_extract(&pollfdset, errorfds, POLLERR_SET);
+    pollfdset_term(&pollfdset);
+    return ret;
+}
+#else /* USE_POLL */
 int
 rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds, struct timeval *timeout)
 {
@@ -3817,6 +3918,7 @@ rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *excep
         rb_fd_zero(errorfds);
     return select(n, r, w, e, timeout);
 }
+#endif /* USE_POLL */
 
 #define rb_fd_no_init(fds) ((void)((fds)->fdset = 0), (void)((fds)->maxfd = 0))
 
