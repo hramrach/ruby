@@ -3890,22 +3890,7 @@ rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t *
     return do_select(max, read, write, except, timeout);
 }
 
-/*
- * poll() is supported by many OSes, but so far Linux is the only
- * one we know of that supports using poll() in all places select()
- * would work.
- */
-#if defined(HAVE_POLL) && defined(__linux__)
-#  define USE_POLL
-#endif
-
-#ifdef USE_POLL
-
-/* The same with linux kernel. TODO: make platform independent definition. */
-#define POLLIN_SET (POLLRDNORM | POLLRDBAND | POLLIN | POLLHUP | POLLERR)
-#define POLLOUT_SET (POLLWRBAND | POLLWRNORM | POLLOUT | POLLERR)
-#define POLLEX_SET (POLLPRI)
-
+#if USE_POLL
 #ifndef HAVE_PPOLL
 /* TODO: don't ignore sigmask */
 int

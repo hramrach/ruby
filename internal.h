@@ -79,6 +79,27 @@ extern "C" {
 # define __has_extension __has_feature
 #endif
 
+/* non-Linux poll may not work on all FDs */
+#if defined(HAVE_POLL)
+# if defined(__linux__)
+#   define USE_POLL 1
+# endif
+# if defined(__FreeBSD_version) && __FreeBSD_version >= 1100000
+#  define USE_POLL 1
+# endif
+#endif
+
+#ifndef USE_POLL
+# define USE_POLL 0
+#endif
+
+#if USE_POLL
+#define POLLIN_SET (POLLRDNORM | POLLRDBAND | POLLIN)
+#define POLLOUT_SET (POLLWRBAND | POLLWRNORM | POLLOUT)
+#define POLLEX_SET (POLLPRI)
+#define POLLERR_SET (POLLHUP | POLLERR)
+#endif
+
 #if GCC_VERSION_SINCE(4, 6, 0) || __has_extension(c_static_assert)
 # define STATIC_ASSERT(name, expr) _Static_assert(expr, #name ": " #expr)
 #else
