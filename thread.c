@@ -211,22 +211,6 @@ vm_living_thread_num(const rb_vm_t *vm)
     return vm->living_thread_num;
 }
 
-/*
- * poll() is supported by many OSes, but so far Linux is the only
- * one we know of that supports using poll() in all places select()
- * would work.
- */
-#if defined(HAVE_POLL)
-#  if defined(__linux__)
-#    define USE_POLL
-#  endif
-#  if defined(__FreeBSD_version) && __FreeBSD_version >= 1100000
-#    define USE_POLL
-     /* FreeBSD does not set POLLOUT when POLLHUP happens */
-#    define POLLERR_SET (POLLHUP | POLLERR)
-#  endif
-#endif
-
 static void
 timeout_prepare(rb_hrtime_t **to, rb_hrtime_t *rel, rb_hrtime_t *end,
                 const struct timeval *timeout)
@@ -4054,16 +4038,7 @@ rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t *
     return (int)rb_ensure(do_select, (VALUE)&set, select_set_free, (VALUE)&set);
 }
 
-#ifdef USE_POLL
-
-/* The same with linux kernel. TODO: make platform independent definition. */
-#define POLLIN_SET (POLLRDNORM | POLLRDBAND | POLLIN | POLLHUP | POLLERR)
-#define POLLOUT_SET (POLLWRBAND | POLLWRNORM | POLLOUT | POLLERR)
-#define POLLEX_SET (POLLPRI)
-
-#ifndef POLLERR_SET /* defined for FreeBSD for now */
-#  define POLLERR_SET (0)
-#endif
+#if USE_POLL
 
 /*
  * returns a mask of events
