@@ -22,20 +22,6 @@
 #include <errno.h>
 #include <stddef.h>
 
-/* non-Linux poll may not work on all FDs */
-#if defined(HAVE_POLL)
-# if defined(__linux__)
-#   define USE_POLL 1
-# endif
-# if defined(__FreeBSD_version) && __FreeBSD_version >= 1100000
-#  define USE_POLL 1
-# endif
-#endif
-
-#ifndef USE_POLL
-# define USE_POLL 0
-#endif
-
 #undef free
 #define free(x) xfree(x)
 
