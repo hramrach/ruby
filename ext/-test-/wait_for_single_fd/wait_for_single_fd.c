@@ -86,6 +86,7 @@ Init_wait_for_single_fd(void)
     rb_define_const(rb_cObject, "RB_WAITFD_IN", INT2NUM(RB_WAITFD_IN));
     rb_define_const(rb_cObject, "RB_WAITFD_OUT", INT2NUM(RB_WAITFD_OUT));
     rb_define_const(rb_cObject, "RB_WAITFD_PRI", INT2NUM(RB_WAITFD_PRI));
+    rb_define_const(rb_cObject, "RB_WAITFD_ERR", INT2NUM(RB_WAITFD_ERR));
     rb_define_singleton_method(rb_cIO, "wait_for_single_fd",
                                wait_for_single_fd, 3);
 #ifdef HAVE_KQUEUE
