@@ -45,7 +45,11 @@ class TestWaitForSingleFD < Test::Unit::TestCase
     with_pipe do |r,w|
       w.close
       rc = IO.wait_for_single_fd(r.fileno, RB_WAITFD_IN, nil)
-      assert_equal RB_WAITFD_IN, rc
+      if IO.methods.include? :select_with_poll then
+          assert_equal RB_WAITFD_IN|RB_WAITFD_ERR, rc
+      else
+          assert_equal RB_WAITFD_IN, rc
+      end
     end
   end
 
