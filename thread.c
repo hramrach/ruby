@@ -3877,11 +3877,24 @@ pollfdset_extract(struct rb_pollfdset *pollfdset, rb_fdset_t *fds, int flags)
             rb_fd_set(pollfdset->fds[i].fd, fds);
 }
 
+static bool
+pollfdset_badfd(struct rb_pollfdset *pollfdset)
+{
+    int i;
+
+    for (i = 0; i < pollfdset->n_fds; i++)
+        if (pollfdset->fds[i].revents & POLLNVAL)
+            return true;
+
+    return false;
+}
+
 int
 rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds, struct timeval *timeout)
 {
     struct rb_pollfdset pollfdset;
     int timeout_ms = timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1;
+    bool badfd;
     int ret;
 
     pollfdset_init(&pollfdset);
@@ -3890,11 +3903,24 @@ rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *excep
     if (exceptfds) pollfdset_add(&pollfdset, exceptfds, POLLEX_SET);
     if (errorfds) pollfdset_add(&pollfdset, errorfds, POLLERR_SET);
     ret = poll(pollfdset.fds, pollfdset.n_fds, timeout_ms);
-    if (readfds) pollfdset_extract(&pollfdset, readfds, POLLIN_SET);
-    if (writefds) pollfdset_extract(&pollfdset, writefds, POLLOUT_SET);
-    if (exceptfds) pollfdset_extract(&pollfdset, exceptfds, POLLEX_SET);
-    if (errorfds) pollfdset_extract(&pollfdset, errorfds, POLLERR_SET);
+    badfd = pollfdset_badfd(&pollfdset);
+    if (badfd) {
+        if (readfds) rb_fd_zero(readfds);
+        if (writefds) rb_fd_zero(writefds);
+        if (exceptfds) rb_fd_zero(exceptfds);
+        if (errorfds) rb_fd_zero(errorfds);
+    } else {
+        if (readfds) pollfdset_extract(&pollfdset, readfds, POLLIN_SET);
+        if (writefds) pollfdset_extract(&pollfdset, writefds, POLLOUT_SET);
+        if (exceptfds) pollfdset_extract(&pollfdset, exceptfds, POLLEX_SET);
+        if (errorfds) pollfdset_extract(&pollfdset, errorfds, POLLERR_SET);
+    }
     pollfdset_term(&pollfdset);
+
+    if (badfd) {
+        errno = EBADF;
+        return -EBADF;
+    }
     return ret;
 }
 #else /* USE_POLL */
