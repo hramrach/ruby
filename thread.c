@@ -3797,14 +3797,14 @@ pollfdset_add(struct rb_pollfdset *pollfdset, rb_fdset_t *fds, int flags)
 }
 
 static void
-pollfdset_extract(struct rb_pollfdset *pollfdset, rb_fdset_t *fds, int flags)
+pollfdset_extract(struct rb_pollfdset *pollfdset, rb_fdset_t *fds, int flags, int *extracted)
 {
     int i;
 
     rb_fd_zero(fds);
     for (i = 0; i < pollfdset->n_fds; i++)
         if (pollfdset->fds[i].revents & flags)
-            rb_fd_set(pollfdset->fds[i].fd, fds);
+            rb_fd_set(pollfdset->fds[i].fd, fds), (*extracted)++;
 }
 
 static bool
@@ -3819,6 +3819,36 @@ pollfdset_badfd(struct rb_pollfdset *pollfdset)
     return false;
 }
 
+static void
+print_pollevents(int events)
+{
+    if (events | POLLIN) fprintf(stderr, " POLLIN"), events &= ~POLLIN;
+    if (events | POLLRDNORM) fprintf(stderr, " POLLRDNORM"), events &= ~POLLRDNORM;
+    if (events | POLLRDBAND) fprintf(stderr, " POLLRDBAND"), events &= ~POLLRDBAND;
+    if (events | POLLOUT) fprintf(stderr, " POLLOUT"), events &= ~POLLOUT;
+    if (events | POLLWRNORM) fprintf(stderr, " POLLWRNORM"), events &= ~POLLWRNORM;
+    if (events | POLLWRBAND) fprintf(stderr, " POLLWRBAND"), events &= ~POLLWRBAND;
+    if (events | POLLPRI) fprintf(stderr, " POLLPRI"), events &= ~POLLPRI;
+    if (events | POLLHUP) fprintf(stderr, " POLLHUP"), events &= ~POLLHUP;
+    if (events | POLLERR) fprintf(stderr, " POLLERR"), events &= ~POLLERR;
+    if (events | POLLNVAL) fprintf(stderr, " POLLNVAL"), events &= ~POLLNVAL;
+    if (events) fprintf(stderr, " 0x%x", events);
+}
+
+static void
+pollfdset_print(struct rb_pollfdset *pollfdset)
+{
+    int i;
+
+    for (i = 0; i < pollfdset->n_fds; i++) {
+        fprintf(stderr, "fd: %i, events:", pollfdset->fds[i].fd);
+        print_pollevents(pollfdset->fds[i].events);
+        fprintf(stderr, ", revents:");
+        print_pollevents(pollfdset->fds[i].revents);
+        fprintf(stderr, "\n");
+    }
+}
+
 int
 rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds,
              struct timeval *timeout, bool select_iface)
@@ -3826,6 +3856,7 @@ rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *excep
     struct rb_pollfdset pollfdset;
     int timeout_ms = timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1;
     bool badfd = false;
+    int extracted = 0;
     int ret;
 
     pollfdset_init(&pollfdset);
@@ -3843,10 +3874,12 @@ rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *excep
         if (errorfds) rb_fd_zero(errorfds);
     } else {
         if (readfds) pollfdset_extract(&pollfdset, readfds, POLLIN_SET |
-                (select_iface ? POLLERR_SET : 0));
-        if (writefds) pollfdset_extract(&pollfdset, writefds, POLLOUT_SET);
-        if (exceptfds) pollfdset_extract(&pollfdset, exceptfds, POLLEX_SET);
-        if (errorfds) pollfdset_extract(&pollfdset, errorfds, POLLERR_SET);
+                (select_iface ? POLLERR_SET : 0), &extracted);
+        if (writefds) pollfdset_extract(&pollfdset, writefds, POLLOUT_SET, &extracted);
+        if (exceptfds) pollfdset_extract(&pollfdset, exceptfds, POLLEX_SET, &extracted);
+        if (errorfds) pollfdset_extract(&pollfdset, errorfds, POLLERR_SET, &extracted);
+        if (!extracted)
+            pollfdset_print(&pollfdset);
     }
     pollfdset_term(&pollfdset);
 
