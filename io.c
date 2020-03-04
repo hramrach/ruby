@@ -9099,7 +9099,7 @@ rb_f_backquote(VALUE obj, VALUE str)
 #endif
 
 static VALUE
-select_internal(VALUE read, VALUE write, VALUE except, VALUE error, struct timeval *tp, rb_fdset_t *fds)
+select_internal(VALUE read, VALUE write, VALUE except, VALUE error, struct timeval *tp, bool select_iface, rb_fdset_t *fds)
 {
     VALUE res, list;
     rb_fdset_t *rp, *wp, *ep, *erp;
@@ -9162,7 +9162,7 @@ select_internal(VALUE read, VALUE write, VALUE except, VALUE error, struct timev
 	ep = 0;
     }
 
-    if (!NIL_P(error)) {
+    if (!NIL_P(error) && !select_iface) {
 	Check_Type(error, T_ARRAY);
 	for (i=0; i<RARRAY_LEN(error); i++) {
             VALUE io = rb_io_get_io(RARRAY_AREF(error, i));
@@ -9184,7 +9184,7 @@ select_internal(VALUE read, VALUE write, VALUE except, VALUE error, struct timev
 
     max++;
 
-    n = rb_thread_fd_select(max, rp, wp, ep, erp, tp);
+    n = rb_thread_fd_select(max, rp, wp, ep, erp, tp, select_iface);
     if (n < 0) {
 	rb_sys_fail(0);
     }
@@ -9194,7 +9194,8 @@ select_internal(VALUE read, VALUE write, VALUE except, VALUE error, struct timev
     rb_ary_push(res, rp?rb_ary_new():rb_ary_new2(0));
     rb_ary_push(res, wp?rb_ary_new():rb_ary_new2(0));
     rb_ary_push(res, ep?rb_ary_new():rb_ary_new2(0));
-    rb_ary_push(res, erp?rb_ary_new():rb_ary_new2(0));
+    if (!select_iface)
+	rb_ary_push(res, erp?rb_ary_new():rb_ary_new2(0));
 
     if (rp) {
 	list = RARRAY_AREF(res, 0);
@@ -9266,6 +9267,7 @@ select_internal(VALUE read, VALUE write, VALUE except, VALUE error, struct timev
 struct select_args {
     VALUE read, write, except, error;
     struct timeval *timeout;
+    bool select_iface;
     rb_fdset_t fdsets[5];
 };
 
@@ -9274,7 +9276,7 @@ select_call(VALUE arg)
 {
     struct select_args *p = (struct select_args *)arg;
 
-    return select_internal(p->read, p->write, p->except, p->error, p->timeout, p->fdsets);
+    return select_internal(p->read, p->write, p->except, p->error, p->timeout, p->select_iface, p->fdsets);
 }
 
 static VALUE
@@ -9482,8 +9484,9 @@ rb_io_advise(int argc, VALUE *argv, VALUE io)
  *
  *  On systems that support poll(2) system call IO.select_with_poll is provided
  *  which takes and returns extra array of descriptors. Descriptors in this
- *  extra array and all other arrays are checked for error conditions -
- *  typically the other side closing the pipe or socket.
+ *  extra array are checked for error conditions - typically the other side
+ *  closing the pipe or socket. Descriptors returned in fourth array instead of
+ *  raising Errno::EBADF.
  *
  *  IO.select peeks the buffer of IO objects for testing readability.
  *  If the IO buffer is not empty, IO.select immediately notifies
@@ -9622,21 +9625,20 @@ rb_f_select_with_poll(int argc, VALUE *argv, VALUE obj)
     struct select_args args;
 
     rb_scan_args(argc, argv, "14", &args.read, &args.write, &args.except, &args.error, &timeout);
+    args.select_iface = false;
     return do_rb_f_select(&args, timeout);
 }
 #endif
 static VALUE
 rb_f_select(int argc, VALUE *argv, VALUE obj)
 {
-    VALUE timeout, rv;
+    VALUE timeout;
     struct select_args args;
 
     rb_scan_args(argc, argv, "13", &args.read, &args.write, &args.except, &timeout);
     args.error = Qnil;
-    rv = do_rb_f_select(&args, timeout);
-    if (RB_TYPE_P(rv, T_ARRAY))
-        rb_ary_pop(rv);
-    return rv;
+    args.select_iface = true;
+    return do_rb_f_select(&args, timeout);
 }
 
 static VALUE
