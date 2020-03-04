@@ -3803,7 +3803,7 @@ pollfdset_extract(struct rb_pollfdset *pollfdset, rb_fdset_t *fds, int flags)
 
     rb_fd_zero(fds);
     for (i = 0; i < pollfdset->n_fds; i++)
-        if (pollfdset->fds[i].revents & (flags | POLLERR_SET))
+        if (pollfdset->fds[i].revents & flags)
             rb_fd_set(pollfdset->fds[i].fd, fds);
 }
 
@@ -3820,11 +3820,12 @@ pollfdset_badfd(struct rb_pollfdset *pollfdset)
 }
 
 int
-rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds, struct timeval *timeout)
+rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *exceptfds, rb_fdset_t *errorfds,
+             struct timeval *timeout, bool select_iface)
 {
     struct rb_pollfdset pollfdset;
     int timeout_ms = timeout ? timeout->tv_sec * 1000 + timeout->tv_usec / 1000 : -1;
-    bool badfd;
+    bool badfd = false;
     int ret;
 
     pollfdset_init(&pollfdset);
@@ -3833,14 +3834,16 @@ rb_fd_select(int n, rb_fdset_t *readfds, rb_fdset_t *writefds, rb_fdset_t *excep
     if (exceptfds) pollfdset_add(&pollfdset, exceptfds, POLLEX_SET);
     if (errorfds) pollfdset_add(&pollfdset, errorfds, POLLERR_SET);
     ret = poll(pollfdset.fds, pollfdset.n_fds, timeout_ms);
-    badfd = pollfdset_badfd(&pollfdset);
+    if (select_iface)
+        badfd = pollfdset_badfd(&pollfdset);
     if (badfd) {
         if (readfds) rb_fd_zero(readfds);
         if (writefds) rb_fd_zero(writefds);
         if (exceptfds) rb_fd_zero(exceptfds);
         if (errorfds) rb_fd_zero(errorfds);
     } else {
-        if (readfds) pollfdset_extract(&pollfdset, readfds, POLLIN_SET);
+        if (readfds) pollfdset_extract(&pollfdset, readfds, POLLIN_SET |
+                (select_iface ? POLLERR_SET : 0));
         if (writefds) pollfdset_extract(&pollfdset, writefds, POLLOUT_SET);
         if (exceptfds) pollfdset_extract(&pollfdset, exceptfds, POLLEX_SET);
         if (errorfds) pollfdset_extract(&pollfdset, errorfds, POLLERR_SET);
@@ -3989,6 +3992,7 @@ struct select_set {
     rb_fdset_t orig_eset;
     rb_fdset_t orig_errset;
     struct timeval *timeout;
+    _Bool select_iface;
 };
 
 static VALUE
@@ -4054,7 +4058,8 @@ do_select(VALUE p)
             if (!RUBY_VM_INTERRUPTED(set->th->ec)) {
                 result = native_fd_select(set->max, set->rset, set->wset,
                                           set->eset, set->errset,
-                                          rb_hrtime2timeval(&tv, sto), set->th);
+                                          rb_hrtime2timeval(&tv, sto),
+                                          set->select_iface, set->th);
                 if (result < 0) lerrno = errno;
             }
 	}, set->sigwait_fd >= 0 ? ubf_sigwait : ubf_select, set->th, TRUE);
@@ -4122,7 +4127,7 @@ init_set_fd(int fd, rb_fdset_t *fds)
 
 int
 rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t * except,
-		    rb_fdset_t * error, struct timeval *timeout)
+                    rb_fdset_t * error, struct timeval *timeout, _Bool select_iface)
 {
     struct select_set set;
 
@@ -4134,6 +4139,7 @@ rb_thread_fd_select(int max, rb_fdset_t * read, rb_fdset_t * write, rb_fdset_t *
     set.eset = except;
     set.errset = error;
     set.timeout = timeout;
+    set.select_iface = select_iface;
 
     if (!set.rset && !set.wset && !set.eset && !set.errset) {
         if (!timeout) {

@@ -47,7 +47,7 @@ extern "C" {
 #  define RB_WAITFD_IN  POLLIN
 #  define RB_WAITFD_PRI POLLPRI
 #  define RB_WAITFD_OUT POLLOUT
-#  define RB_WAITFD_ERR (POLLHUP|POLLERR)
+#  define RB_WAITFD_ERR (POLLHUP|POLLERR|POLLNVAL)
 #else
 #  define RB_WAITFD_IN  0x001
 #  define RB_WAITFD_PRI 0x002
