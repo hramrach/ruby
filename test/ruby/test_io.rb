@@ -23,6 +23,10 @@ class TestIO < Test::Unit::TestCase
     def have_nonblock?
       IO.method_defined?("nonblock=")
     end
+
+    def have_poll?
+      IO.respond_to? :select_with_poll
+    end
   end
 
   include Feature
@@ -3847,6 +3851,62 @@ __END__
       th.kill
       th.join
     end;
+  end
+
+  def test_select_raise
+    require 'fcntl'
+
+    fd = STDERR.fcntl(Fcntl::F_DUPFD)
+    io = IO.for_fd(fd, mode: 'w')
+    io2 = IO.for_fd(fd, mode: 'w')
+
+    io2.close
+
+    assert_raise(Errno::EBADF) {select [io], [io], [io]}
+  end
+
+  def test_poll_no_raise
+    require 'fcntl'
+
+    fd = STDERR.fcntl(Fcntl::F_DUPFD)
+    io = IO.for_fd(fd, mode: 'w')
+    io2 = IO.for_fd(fd, mode: 'w')
+
+    io2.close
+
+    assert_equal [[],[],[],[io]], (IO.select_with_poll [io], [io], [io], [io])
+  end if have_poll?
+
+  def startcmd *cmd
+    spawn_in, pipe_in = IO.pipe
+    pipe_out, spawn_out = IO.pipe
+    pipe_err, spawn_err = IO.pipe
+    pid = spawn(*cmd, :err=>spawn_err, :out=>spawn_out, :in=>spawn_in, :close_others=>true)
+    [spawn_in, spawn_out, spawn_err].each{|fd| fd.close}
+    [[pipe_in, pipe_out, pipe_err],pid]
+  end
+
+  def endcmd stuff
+    fds, pid = stuff
+    fds.each{|fd| fd.close rescue nil}
+    Process.waitpid pid
+  end
+
+  def test_select_cat
+    stuff = startcmd *%w(cat)
+    fds = stuff[0]
+    assert_equal [[],[fds[0]],[]], (IO.select fds, fds, fds, 0)
+    assert_equal [[],[fds[0]],[],[]], (IO.select_with_poll fds, fds, fds, fds, 0) if have_poll?
+    endcmd stuff
+  end
+
+  def test_select_uname
+    stuff = startcmd *%w(uname -a)
+    fds = stuff[0]
+    sleep 0.1
+    assert_equal [[fds[0],fds[1],fds[2]],[fds[0]],[]], (IO.select fds, fds, fds, 0)
+    assert_equal [[fds[1]],[fds[0]],[],[fds[0],fds[1],fds[2]]], (IO.select_with_poll fds, fds, fds, fds, 0) if have_poll?
+    endcmd stuff
   end
 
   def test_external_encoding_index
